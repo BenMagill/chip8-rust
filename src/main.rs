@@ -125,6 +125,12 @@ fn xy_(&instruction: &(u8, u8)) -> (u8, u8, u8) {
     return (instruction.0 & 0x0F, (instruction.1 & 0xF0) >> 4 , instruction.1 & 0x0F)
 }
 
+fn XOR(base: u64, add: u64) -> (u64, bool) {
+    let xored = base ^ add; 
+    let ored = base | add;
+    return (xored, xored != ored);
+}
+
 struct Chip8 {
     // to change
     memory: [u8; MEMORY_SIZE],
@@ -175,7 +181,7 @@ impl Chip8 {
             delay_timer: 0,
             stack_pointer: 0,
             stack: [0; 16],
-            display: [0b01; SCREEN_Y],
+            display: [0b0; SCREEN_Y],
             window,
             gl,
             events,
@@ -268,7 +274,10 @@ impl Chip8 {
             0x0 => {
                 match &instruction.1 {
                     0xE0 => {
-                        println!("Clear display");
+                        // println!("Clear display");
+                        for i in 0..SCREEN_Y {
+                            self.display[i] = 0;
+                        }
                     }
                     0xEE => {
                         println!("Return from subroutine");
@@ -280,7 +289,9 @@ impl Chip8 {
             }
             0x1 => {
                 let data = extract_address(&instruction);
-                println!("JUMP TO {:X}", data)
+                
+                self.program_counter = data;
+                // println!("JUMP TO {:X}", data)
             }
             0x2 => {
                 let data = extract_address(&instruction);
@@ -299,12 +310,14 @@ impl Chip8 {
                 println!("SKIP IF Register {:X} == Register {:X}", data.0, data.1);
             }
             0x6 => {
-                let data = xkk(&instruction);
-                println!("SET Register {:X} to {:X}", data.0, data.1);
+                let (x, k) = xkk(&instruction);
+                // println!("SET Register {:X} to {:X}", x, k);
+                self.general_registers[x as usize] = k;
             }
             0x7 => {
-                let data = xkk(&instruction);
-                println!("SET Register {:X} to Register {:X} + {:X}", data.0, data.0, data.1);
+                let (x, k) = xkk(&instruction);
+                // println!("SET Register {:X} to Register {:X} + {:X}",x, x, k);
+                self.general_registers[x as usize] = self.general_registers[x as usize] + k;
             }
             0x8 => {
                 let (x, y, op) = xy_(&instruction);
@@ -352,7 +365,8 @@ impl Chip8 {
             }
             0xA => {
                 let address = extract_address(&instruction);
-                println!("Set Reg I to {:X}", address);
+                // println!("Set Reg I to {:X}", address);
+                self.memory_register = address;
             }
             0xB => {
                 let address = extract_address(&instruction);
@@ -363,11 +377,59 @@ impl Chip8 {
                 println!("Set Reg {:X} to random byte AND {:b}", x, k);
             }
             0xD => {
+                // TODO this will be refactored and cleaned
                 // Set VF = 1 if a pixel erased else 0
                 // Data XORed over screen data
                 // Wraps around of coordinates outside of screen 
                 let (x, y, n) = xy_(&instruction);
-                println!("Draw sprite of size {:X} stored in Reg I at coords Reg {:X}, Reg {:X}", n, x, y)
+                // println!("Draw sprite of size {:X} stored in Reg I at coords Reg {:X}, Reg {:X}", n, x, y);
+                let x_pos = self.general_registers[x as usize];
+                let y_pos = self.general_registers[y as usize];
+                println!("Draw sprite of size {:X} stored in Reg I at coords  {},  {}", n, self.general_registers[x as usize], self.general_registers[y as usize]);
+                /*
+                get n rows from memory starting at I position
+                draw these over current screen from position (Reg x), (Reg y) XOR
+                if part out side of screen wrap round
+                */
+                let mut flag = false;
+                for i in 0..n {
+                    let sprite_byte = self.memory[(self.memory_register as usize) + (i as usize)];
+                    println!("sprite row {:#b}", sprite_byte);
+                    // TODO should wrap around if larger then SCREEN_Y
+                    let y_offset = y_pos + i;
+                    let current_row_data = self.display[y_offset as usize];
+                    
+                    // determine what bytes will wrap round 
+                    println!("{} away from end", SCREEN_X-1 - x_pos);
+                    let to_end = (SCREEN_X-1 - x_pos);
+                    if (to_end < 8) {
+                        // println!("needs wrap of {:X} bits while {:X} not", 8 - to_end,  );
+                        let nowrap = (sprite_byte as u64) >> (8 - to_end) ;
+                        // let wrap = (current_row_data << to_end) >> to_end;
+                        let wrap = (sprite_byte as u64) << (SCREEN_X-1 - to_end);
+
+                        println!("{:#b}", nowrap);
+                        println!("data: {:#b} size: {:X}", wrap, 8- to_end);
+
+                        // xor from end for no wrap and start for wrap
+                        let (temp_result, newHidden) = XOR(current_row_data, nowrap);
+                        let (result, newHidden2) = XOR(temp_result, wrap);
+                        if (newHidden | newHidden2) {
+                            self.general_registers[0xF] = 1;
+                        } else {
+                            self.general_registers[0xF] = 0;
+                        }
+                        self.display[y_offset as usize] = result;
+                    } else {
+                        println!("{:#b} previous row", current_row_data);
+                        let positioned_byte = (sprite_byte as u64 )<< to_end;
+                        let (result, hasHidden) = XOR(current_row_data, positioned_byte);
+                        println!("{:#b} result of XOR", result);
+                        self.general_registers[0xF] = hasHidden as u8;
+                        self.display[y_offset as usize] = result;
+                    }
+                }
+
             }
             0xE => {
                 let (x, k) = xkk(&instruction);
@@ -427,7 +489,7 @@ impl Chip8 {
             }
         }
 
-        self.display[rand::thread_rng().gen_range(0..32)] = rand::thread_rng().gen_range(0..2_u64.pow(63));
+        // self.display[rand::thread_rng().gen_range(0..32)] = rand::thread_rng().gen_range(0..2_u64.pow(63));
 
     }
 
