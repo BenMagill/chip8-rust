@@ -18,9 +18,12 @@ const PROGRAM_START: usize = 512;
 const INSTRUCTIONS_PER_SECOND: u16 = 700;
 const MEMORY_SIZE: usize = 4096;
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 const SCREEN_X: u8 = 64;
 const SCREEN_Y: usize = 32;
+
+const SHOW_GRID: bool = false;
 
 const sprites: [u8; 80] = [
     // 0
@@ -154,22 +157,24 @@ impl Chip8 {
     fn new() -> Chip8 {
         let mut memory_prepared = [0; 4096];
 
-        // TODO where exactly should this be stored??
+        // Add sprites to memory (interpreter part)
         for i in 0..sprites.len() {
             memory_prepared[i+SPRITE_START] = sprites[i];
         }
+
+        // Graphics stuff
         let opengl = OpenGL::V3_2;
-        let mut window: PistonWindow = WindowSettings::new("shapes", [1300, 660])
+        let window: PistonWindow = WindowSettings::new("shapes", [1300, 660])
             .exit_on_esc(true)
             .graphics_api(opengl)
             .build()
             .unwrap();
 
-        let mut gl = GlGraphics::new(opengl);
+        let gl = GlGraphics::new(opengl);
         let mut event_settings = EventSettings::new();
         event_settings.max_fps(10);
         event_settings.set_ups(700);
-        let mut events = Events::new(event_settings);
+        let events = Events::new(event_settings);
 
         Chip8 {
             memory: memory_prepared,
@@ -196,76 +201,33 @@ impl Chip8 {
         for i in 0..program_bytes.len() {
             self.memory[PROGRAM_START + i] = program_bytes[i];
         }
-
-        // for i in 0..program_bytes.len()/2 {
-        //     let converted : u16 = (program_bytes[i*2] as u16) << 8 | program_bytes[(i*2)+1] as u16;
-        //     println!("{:X}", converted);
-        //     self.memory.push(converted);
-        // }
     }
 
     fn run(&mut self) {
-
-        // Render loop    
-        // TODO: split up render and updates so we dont render every loop
+        // Graphics loop
         while let Some(e) = self.events.next(&mut self.window) {
+            // Execute a cycle on each update
             if let Some(args) = e.render_args() {
-                // render(&window, &e);
                 self.updateDisplay(&args);
             }
             
+            // Only render to the screen when wanted
             if let Some(args) = e.update_args() {
                 self.executeCycle(&args);
             }
         }
-
-        // let mut exit = false;
-        // let time_between_instructions: f64 = 1000000.0/INSTRUCTIONS_PER_SECOND as f64;
-        // println!("{:.1$}", time_between_instructions, 10);
-
-        // while exit == false {
-        //     let temp_time = SystemTime::now();
-        //     // println!("time at start of cycle {:?}", temp_time);
-        //     /*
-        //     * get current time and add time per cycle to it (this is when next cycle should happen)
-        //     * after code ran get the time and work out the difference then sleep for this time
-        //     */
-
-        //     // RUN A CYCLE
-        //     self.executeCycle();
-
-        //     let new_time = SystemTime::now().duration_since(temp_time).expect("Time go weird").as_micros();
-        //     if (time_between_instructions as u64 <= new_time as u64) {
-        //         // println!("OVERRAN")
-        //     } else {
-        //         thread::sleep(
-        //             Duration::from_micros(
-        //                 time_between_instructions as u64 - new_time as u64
-        //             )
-        //         );
-        //     }
-        //     // println!("time at end of cycle {:?}", SystemTime::now());
-        //     // exit = true;
-
-        // }
-
-
-        // for i in 0..self.memory.len()/2 {
-        //     let instruction : u16 = (self.memory[i*2] as u16) << 8 | self.memory[(i*2)+1] as u16;
-        //     println!("{:X}", instruction);
-        // }
     }
 
-    // This is the update event called
+    // Handle the next instruction
     fn executeCycle(&mut self, args: &UpdateArgs) {
-        // Get instruction PC points to 
-        // let instruction : u16 = (self.memory[self.program_counter as usize] as u16) << 8 | self.memory[(self.program_counter+1) as usize] as u16;
+        // Get instruction PC points to. They are split in two bytes
         let instruction : (u8, u8) = ((self.memory[self.program_counter as usize]), self.memory[(self.program_counter+1) as usize]);
-        // println!("{:X},{:X}", instruction.0, instruction.1);
+
         // increment to get next instruction next cycle
         self.program_counter += 2;
 
         // Hack for now, should exit instead
+        // Many programs have a loop when finished anyway or will exit
         if self.program_counter >= MEMORY_SIZE as u16 {
             self.program_counter = 0;
         }
@@ -488,31 +450,24 @@ impl Chip8 {
                 handle_invalid_instruction(&instruction)
             }
         }
-
-        // self.display[rand::thread_rng().gen_range(0..32)] = rand::thread_rng().gen_range(0..2_u64.pow(63));
-
     }
 
-    // This is called when a new frame is wanted
+    // This is called when the screen needs updating
     fn updateDisplay(&mut self, args: &RenderArgs) {
         self.gl.draw(args.viewport(), |c, gl| {
             clear([0.0; 4], gl);
             
             for y_offset in 0..SCREEN_Y {
                 let row = self.display[y_offset];
-                // println!("{:#b}", row);
     
                 for x_offset in 0..SCREEN_X {
-                    // println!("i: {:?}" ,i);
-                    // println!("power: {:?}", 2_u8.pow(7-i));
                     let offset = ((SCREEN_X-1)-x_offset) as u32;
-                    // println!("x: {:?} y: {:?}", x_offset, y_offset);
+
                     let mut converted = row & 2_u64.pow(offset);
                     if converted != 0 {
                         converted = converted >> offset;
                     }
-                    // println!("{:#b}", converted);
-                    // 
+
                     let c = c.trans(x_offset as f64 * 20.0, y_offset as f64 * 20.0);
                     let white = [1.0, 1.0, 1.0, 1.0];
                     let black = [0.0, 0.0, 0.0, 1.0];
@@ -521,38 +476,14 @@ impl Chip8 {
                     if converted == 0b1 {
                         colour = white;
                         rectangle(colour, rect, c.transform, gl);
+                    } else if (SHOW_GRID) {
+                        rectangle(colour, rect, c.transform, gl);
+                        let border_tickness = 0.5;
+                        Rectangle::new_border(white, border_tickness).draw(rect, &c.draw_state, c.transform, gl);
                     }
                 }
             }
-            // thread::sleep(
-            //     Duration::from_millis(110)
-            // );
-            // for i in 0..5 {
-            //     // Position on screen 
-            //     let c = c.trans(10.0, i as f64 * 20.0);
-            //     let black = [0.0, 0.0, 0.0, 1.0];
-            //     let red = [1.0, 0.0, 0.0, 1.0];
-            //     let rect = math::margin_rectangle([20.0; 4], 1.0);
-            //     rectangle(red, rect, c.transform, g);
-            // }
         });
-        // for i in 0..SCREEN_Y {
-        //     let row = self.display[i];
-        //     println!("{:#b}", row);
-
-        //     for j in 0..SCREEN_X {
-        //         // println!("i: {:?}", i);
-        //         // println!("power: {:?}", 2_u8.pow(7-i));
-        //         let offset = ((SCREEN_X-1)-j) as u32;
-        //         println!("{:?}", offset);
-        //         let mut converted = row & 2_u64.pow(offset);
-        //         if converted != 0 {
-        //             converted = converted >> offset;
-        //         }
-        //         println!("{:#b}", converted);
-        //         // WRITE THE RECTANGLE HERE
-        //     }
-        // }
     }
 }
 
@@ -560,24 +491,8 @@ impl Chip8 {
 fn main() {
 
     let mut prog = Chip8::new();
+    // TODO : get program location from command args
     prog.load_from_file("programs/IBM ");
     prog.run();
 
-}
-
-fn hexToString() {
-    let program_bytes = fs::read("programs/TETRIS")
-    .expect("Couldn't read file");
-    // Create string representation of the hex characters
-    for i in 0..program_bytes.len()/2 {
-        let mut strhex = String::from("");
-        for j in 0..2 {
-            let mut tempHex = format!("{:X}", program_bytes[(i*2)+j]);
-            if (tempHex.len() == 1) {
-                tempHex = format!("0{}", tempHex)
-            }
-            strhex += &tempHex
-        }
-        println!("{}", strhex);
-    }
 }
