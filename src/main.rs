@@ -23,7 +23,7 @@ const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const SCREEN_X: u8 = 64;
 const SCREEN_Y: usize = 32;
 
-const SHOW_GRID: bool = false;
+const SHOW_GRID: bool = true;
 
 const sprites: [u8; 80] = [
     // 0
@@ -142,7 +142,7 @@ struct Chip8 {
     // I register
     memory_register: u16,
     program_counter: u16,
-    stack_pointer: u8,
+    stack_pointer: i8,
     sound_timer: u32,
     delay_timer: u32,
     stack: [u16; 16],
@@ -172,7 +172,7 @@ impl Chip8 {
 
         let gl = GlGraphics::new(opengl);
         let mut event_settings = EventSettings::new();
-        event_settings.max_fps(10);
+        event_settings.max_fps(1);
         event_settings.set_ups(700);
         let events = Events::new(event_settings);
 
@@ -184,7 +184,7 @@ impl Chip8 {
             memory_register: 0,
             sound_timer: 0,
             delay_timer: 0,
-            stack_pointer: 0,
+            stack_pointer: -1,
             stack: [0; 16],
             display: [0b0; SCREEN_Y],
             window,
@@ -242,7 +242,9 @@ impl Chip8 {
                         }
                     }
                     0xEE => {
-                        println!("Return from subroutine");
+                        // println!("Return from subroutine");
+                        self.program_counter = self.stack[self.stack_pointer as usize];
+                        self.stack_pointer = self.stack_pointer - 1;
                     }
                     _ => {
                         handle_invalid_instruction(&instruction);
@@ -251,25 +253,35 @@ impl Chip8 {
             }
             0x1 => {
                 let data = extract_address(&instruction);
-                
                 self.program_counter = data;
                 // println!("JUMP TO {:X}", data)
             }
             0x2 => {
                 let data = extract_address(&instruction);
-                println!("CALLING SUBROUTING AT {:X}", data)
+                self.stack_pointer += 1;
+                self.stack[self.stack_pointer as usize] = self.program_counter;
+                // println!("CALLING SUBROUTING AT {:X}", data)
             }
             0x3 => {
-                let data = xkk(&instruction);
-                println!("SKIP IF Register {:X} == {:X}", data.0, data.1);
+                let (x, k) = xkk(&instruction);
+                if (self.general_registers[x as usize] == k) {
+                    self.program_counter += 2;
+                }
+                // println!("SKIP IF Register {:X} == {:X}", x, k);
             }
             0x4 => {
-                let data = xkk(&instruction);
-                println!("SKIP IF Register {:X} != {:X}", data.0, data.1);
+                let (x, k) = xkk(&instruction);
+                if (self.general_registers[x as usize] != k) {
+                    self.program_counter += 2;
+                }
+                // println!("SKIP IF Register {:X} != {:X}", x, k);
             }
             0x5 => {
-                let data = xy_(&instruction);
-                println!("SKIP IF Register {:X} == Register {:X}", data.0, data.1);
+                let (x, y, _) = xy_(&instruction);
+                if (self.general_registers[x as usize] == self.general_registers[y as usize]) {
+                    self.program_counter += 2;
+                }
+                // println!("SKIP IF Register {:X} == Register {:X}", x, y);
             }
             0x6 => {
                 let (x, k) = xkk(&instruction);
@@ -278,43 +290,82 @@ impl Chip8 {
             }
             0x7 => {
                 let (x, k) = xkk(&instruction);
-                // println!("SET Register {:X} to Register {:X} + {:X}",x, x, k);
-                self.general_registers[x as usize] = self.general_registers[x as usize] + k;
+                // println!("SET Register {} to Register {} ({}) + {}",x, x, self.general_registers[x as usize], k);
+                self.general_registers[x as usize] = self.general_registers[x as usize].saturating_add(k);
             }
             0x8 => {
                 let (x, y, op) = xy_(&instruction);
                 match op {
                     0x0 => {
-                        println!("Copy value in Register {:X} to Register {:X}", x, y);
+                        // println!("Copy value in Register {:X} to Register {:X}", x, y);
+                        self.general_registers[x as usize] = self.general_registers[y as usize];
                     }
                     0x1 => {
-                        println!("Bitwise OR on Registers {:X} and {:X} and store in {:X}", x, y, x);
+                        // println!("Bitwise OR on Registers {:X} and {:X} and store in {:X}", x, y, x);
+                        self.general_registers[x as usize] = self.general_registers[y as usize] | self.general_registers[x as usize];
                     }
                     0x2 => {
-                        println!("Bitwise AND on Registers {:X} and {:X} and store in {:X}", x, y, x);
+                        // println!("Bitwise AND on Registers {:X} and {:X} and store in {:X}", x, y, x);
+                        self.general_registers[x as usize] = self.general_registers[y as usize] & self.general_registers[x as usize];
                     }
                     0x3 => {
-                        println!("Bitwise XOR on Registers {:X} and {:X} and store in {:X}", x, y, x);
+                        // println!("Bitwise XOR on Registers {:X} and {:X} and store in {:X}", x, y, x);
+                        self.general_registers[x as usize] = self.general_registers[y as usize] ^ self.general_registers[x as usize];
                     }
                     0x4 => {
                         // IF value overflows then Register F is set to 1, else 0
-                        println!("Add values of Registers {:X} and {:X} and store in {:X}", x, y, x);
+                        let reg1 = self.general_registers[x as usize];
+                        let reg2 = self.general_registers[y as usize];
+                        if (reg1 as u16 + reg2 as u16) > 255 {
+                            self.general_registers[0xF] = 1;
+                        } else {
+                            self.general_registers[0xF] = 0;
+                        }
+
+                        self.general_registers[x as usize] = reg1.saturating_add(reg2);
+                        // println!("Add values of Registers {:X} and {:X} and store in {:X}", x, y, x);
                     }
                     0x5 => {
                         // If Reg X > Reg Y set Reg F to 1 else 0
-                        println!("Subtract the value of Register {:X} from {:X} and store in {:X}", y, x, x);
+                        let reg1 = self.general_registers[x as usize];
+                        let reg2 = self.general_registers[y as usize];
+                        if (reg1 > reg2) {
+                            self.general_registers[0xF] = 1;
+                        } else {
+                            self.general_registers[0xF] = 0;
+                        }
+
+                        self.general_registers[x as usize] = reg1.saturating_sub(reg2);
+                        // println!("Subtract the value of Register {:X} from {:X} and store in {:X}", y, x, x);
                     }
                     0x6 => {
                         // If least significant bit of Reg X is 1 set Reg F to 1, else 0 
-                        println!("Divide Register {:X} by 2", x);
+                        // println!("Divide Register {:X} by 2", x);
+                        let regx = self.general_registers[x as usize];
+                        self.general_registers[0xF] = (regx & 1);
+                        self.general_registers[x as usize] = regx / 2;
                     }
                     0x7 => {
+                        let reg1 = self.general_registers[x as usize];
+                        let reg2 = self.general_registers[y as usize];
+                        if (reg1 > reg2) {
+                            self.general_registers[0xF] = 0;
+                        } else {
+                            self.general_registers[0xF] = 1;
+                        }
+                        
+                        self.general_registers[x as usize] = reg2.saturating_sub(reg1);
+                        
                         // If Reg Y > Reg X set Reg F to 1 else 0
-                        println!("Subtract the value of Register {:X} from {:X} and store in {:X}", x, y, x);
+                        // println!("Subtract the value of Register {:X} from {:X} and store in {:X}", x, y, x);
                     }
                     0xE => {
                         // If most significant bit of Reg X is 1 set Reg F to 1, else 0 
-                        println!("Multiply register {:X} by 2", x)
+                        let reg1 = self.general_registers[x as usize];
+                        let reg2 = self.general_registers[y as usize];
+                        self.general_registers[0xF] = (reg1 & 0b10000000) >> 7;
+                        self.general_registers[x as usize] = reg1 << 1;
+                        // println!("Multiply register {:X} by 2", x)
                     }
                     _ => {
                         handle_invalid_instruction(&instruction)
@@ -323,7 +374,10 @@ impl Chip8 {
             }
             0x9 => {
                 let (x, y, _) = xy_(&instruction);
-                println!("Skip next instruction if Reg {:X} != Reg {:X}", x, y);
+                if (self.general_registers[x as usize] != self.general_registers[y as usize]) {
+                    self.program_counter += 2;
+                }
+                // println!("Skip next instruction if Reg {:X} != Reg {:X}", x, y);
             }
             0xA => {
                 let address = extract_address(&instruction);
@@ -332,14 +386,18 @@ impl Chip8 {
             }
             0xB => {
                 let address = extract_address(&instruction);
-                println!("Jump to location {:X} + Reg 0", address);
+                self.program_counter = address + self.general_registers[0] as u16
+                // println!("Jump to location {:X} + Reg 0", address);
             }
             0xC => {
                 let (x, k) = xkk(&instruction);
-                println!("Set Reg {:X} to random byte AND {:b}", x, k);
+                let mut randByte: u8 = rand::thread_rng().gen::<u8>();
+                self.general_registers[x as usize] = randByte & k;
+                // println!("Set Reg {:X} to random byte AND {:b}", x, k);
             }
             0xD => {
                 // TODO this will be refactored and cleaned
+                // CURRENTLY CUTS OFF DATA
                 // Set VF = 1 if a pixel erased else 0
                 // Data XORed over screen data
                 // Wraps around of coordinates outside of screen 
@@ -429,7 +487,8 @@ impl Chip8 {
                     }
                     0x29 => {
                         // Is it value in Reg X or value X?? 
-                        println!("Set I to location of Sprite for digit in Reg {:X}", x)
+                        // println!("Set I to location of Sprite for digit in Reg {:X}", x);
+                        self.memory_register = (SPRITE_START + ( 5 * (x-1)) as usize) as u16;
                     }
                     0x33 => {
                         // The interpreter takes the decimal value of Vx, and places the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.
@@ -459,7 +518,7 @@ impl Chip8 {
             
             for y_offset in 0..SCREEN_Y {
                 let row = self.display[y_offset];
-    
+                // println!("{:#b}", row);
                 for x_offset in 0..SCREEN_X {
                     let offset = ((SCREEN_X-1)-x_offset) as u32;
 
@@ -468,7 +527,7 @@ impl Chip8 {
                         converted = converted >> offset;
                     }
 
-                    let c = c.trans(x_offset as f64 * 20.0, y_offset as f64 * 20.0);
+                    let c = c.trans((x_offset) as f64 * 20.0, y_offset as f64 * 20.0);
                     let white = [1.0, 1.0, 1.0, 1.0];
                     let black = [0.0, 0.0, 0.0, 1.0];
                     let rect = math::margin_rectangle([20.0; 4], 1.0);
@@ -492,7 +551,7 @@ fn main() {
 
     let mut prog = Chip8::new();
     // TODO : get program location from command args
-    prog.load_from_file("programs/IBM ");
+    prog.load_from_file("programs/test_opcode.ch8");
     prog.run();
 
 }
