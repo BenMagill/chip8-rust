@@ -442,7 +442,7 @@ impl Chip8 {
                         self.display[y_offset as usize] = result;
                     } else {
                         println!("{:#b} previous row", current_row_data);
-                        let positioned_byte = (sprite_byte as u64 )<< to_end;
+                        let positioned_byte = (sprite_byte as u64 )<< (to_end - 8);
                         let (result, hasHidden) = XOR(current_row_data, positioned_byte);
                         println!("{:#b} result of XOR", result);
                         self.general_registers[0xF] = hasHidden as u8;
@@ -550,8 +550,9 @@ impl Chip8 {
 fn main() {
 
     let mut prog = Chip8::new();
-    // TODO : get program location from command args
-    prog.load_from_file("programs/test_opcode.ch8");
+    let args: Vec<String> = env::args().collect();
+    let program_location = &args[1];
+    prog.load_from_file(program_location);
     prog.run();
 
 }
