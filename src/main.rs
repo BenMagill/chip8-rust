@@ -1,8 +1,6 @@
 use std::env;
 use std::fs;
 extern crate hex;
-use std::{thread, time::Duration};
-use std::time::{SystemTime, UNIX_EPOCH};
 extern crate piston_window;
 use piston_window::*;
 extern crate opengl_graphics;
@@ -25,7 +23,7 @@ const SCREEN_Y: usize = 32;
 
 const SHOW_GRID: bool = true;
 
-const sprites: [u8; 80] = [
+const SPRITES: [u8; 80] = [
     // 0
     0xF0, 0x90, 0x90, 0x90, 0xF0,
     // 1
@@ -128,7 +126,7 @@ fn xy_(&instruction: &(u8, u8)) -> (u8, u8, u8) {
     return (instruction.0 & 0x0F, (instruction.1 & 0xF0) >> 4 , instruction.1 & 0x0F)
 }
 
-fn XOR(base: u64, add: u64) -> (u64, bool) {
+fn xor(base: u64, add: u64) -> (u64, bool) {
     let xored = base ^ add; 
     let ored = base | add;
     return (xored, xored != ored);
@@ -158,8 +156,8 @@ impl Chip8 {
         let mut memory_prepared = [0; 4096];
 
         // Add sprites to memory (interpreter part)
-        for i in 0..sprites.len() {
-            memory_prepared[i+SPRITE_START] = sprites[i];
+        for i in 0..SPRITES.len() {
+            memory_prepared[i+SPRITE_START] = SPRITES[i];
         }
 
         // Graphics stuff
@@ -208,18 +206,18 @@ impl Chip8 {
         while let Some(e) = self.events.next(&mut self.window) {
             // Execute a cycle on each update
             if let Some(args) = e.render_args() {
-                self.updateDisplay(&args);
+                self.update_display(&args);
             }
             
             // Only render to the screen when wanted
             if let Some(args) = e.update_args() {
-                self.executeCycle(&args);
+                self.execute_cycle(&args);
             }
         }
     }
 
     // Handle the next instruction
-    fn executeCycle(&mut self, args: &UpdateArgs) {
+    fn execute_cycle(&mut self, _args: &UpdateArgs) {
         // Get instruction PC points to. They are split in two bytes
         let instruction : (u8, u8) = ((self.memory[self.program_counter as usize]), self.memory[(self.program_counter+1) as usize]);
 
@@ -260,25 +258,26 @@ impl Chip8 {
                 let data = extract_address(&instruction);
                 self.stack_pointer += 1;
                 self.stack[self.stack_pointer as usize] = self.program_counter;
+                self.program_counter = data;
                 // println!("CALLING SUBROUTING AT {:X}", data)
             }
             0x3 => {
                 let (x, k) = xkk(&instruction);
-                if (self.general_registers[x as usize] == k) {
+                if self.general_registers[x as usize] == k {
                     self.program_counter += 2;
                 }
                 // println!("SKIP IF Register {:X} == {:X}", x, k);
             }
             0x4 => {
                 let (x, k) = xkk(&instruction);
-                if (self.general_registers[x as usize] != k) {
+                if self.general_registers[x as usize] != k {
                     self.program_counter += 2;
                 }
                 // println!("SKIP IF Register {:X} != {:X}", x, k);
             }
             0x5 => {
                 let (x, y, _) = xy_(&instruction);
-                if (self.general_registers[x as usize] == self.general_registers[y as usize]) {
+                if self.general_registers[x as usize] == self.general_registers[y as usize] {
                     self.program_counter += 2;
                 }
                 // println!("SKIP IF Register {:X} == Register {:X}", x, y);
@@ -329,7 +328,7 @@ impl Chip8 {
                         // If Reg X > Reg Y set Reg F to 1 else 0
                         let reg1 = self.general_registers[x as usize];
                         let reg2 = self.general_registers[y as usize];
-                        if (reg1 > reg2) {
+                        if reg1 > reg2 {
                             self.general_registers[0xF] = 1;
                         } else {
                             self.general_registers[0xF] = 0;
@@ -342,13 +341,13 @@ impl Chip8 {
                         // If least significant bit of Reg X is 1 set Reg F to 1, else 0 
                         // println!("Divide Register {:X} by 2", x);
                         let regx = self.general_registers[x as usize];
-                        self.general_registers[0xF] = (regx & 1);
+                        self.general_registers[0xF] = regx & 1;
                         self.general_registers[x as usize] = regx / 2;
                     }
                     0x7 => {
                         let reg1 = self.general_registers[x as usize];
                         let reg2 = self.general_registers[y as usize];
-                        if (reg1 > reg2) {
+                        if reg1 > reg2 {
                             self.general_registers[0xF] = 0;
                         } else {
                             self.general_registers[0xF] = 1;
@@ -362,7 +361,7 @@ impl Chip8 {
                     0xE => {
                         // If most significant bit of Reg X is 1 set Reg F to 1, else 0 
                         let reg1 = self.general_registers[x as usize];
-                        let reg2 = self.general_registers[y as usize];
+                        // let reg2 = self.general_registers[y as usize];
                         self.general_registers[0xF] = (reg1 & 0b10000000) >> 7;
                         self.general_registers[x as usize] = reg1 << 1;
                         // println!("Multiply register {:X} by 2", x)
@@ -374,7 +373,7 @@ impl Chip8 {
             }
             0x9 => {
                 let (x, y, _) = xy_(&instruction);
-                if (self.general_registers[x as usize] != self.general_registers[y as usize]) {
+                if self.general_registers[x as usize] != self.general_registers[y as usize] {
                     self.program_counter += 2;
                 }
                 // println!("Skip next instruction if Reg {:X} != Reg {:X}", x, y);
@@ -391,8 +390,8 @@ impl Chip8 {
             }
             0xC => {
                 let (x, k) = xkk(&instruction);
-                let mut randByte: u8 = rand::thread_rng().gen::<u8>();
-                self.general_registers[x as usize] = randByte & k;
+                let random_byte: u8 = rand::thread_rng().gen::<u8>();
+                self.general_registers[x as usize] = random_byte & k;
                 // println!("Set Reg {:X} to random byte AND {:b}", x, k);
             }
             0xD => {
@@ -411,7 +410,6 @@ impl Chip8 {
                 draw these over current screen from position (Reg x), (Reg y) XOR
                 if part out side of screen wrap round
                 */
-                let mut flag = false;
                 for i in 0..n {
                     let sprite_byte = self.memory[(self.memory_register as usize) + (i as usize)];
                     println!("sprite row {:#b}", sprite_byte);
@@ -421,8 +419,8 @@ impl Chip8 {
                     
                     // determine what bytes will wrap round 
                     println!("{} away from end", SCREEN_X-1 - x_pos);
-                    let to_end = (SCREEN_X-1 - x_pos);
-                    if (to_end < 8) {
+                    let to_end = SCREEN_X-1 - x_pos;
+                    if to_end < 8 {
                         // println!("needs wrap of {:X} bits while {:X} not", 8 - to_end,  );
                         let nowrap = (sprite_byte as u64) >> (8 - to_end) ;
                         // let wrap = (current_row_data << to_end) >> to_end;
@@ -432,9 +430,9 @@ impl Chip8 {
                         println!("data: {:#b} size: {:X}", wrap, 8- to_end);
 
                         // xor from end for no wrap and start for wrap
-                        let (temp_result, newHidden) = XOR(current_row_data, nowrap);
-                        let (result, newHidden2) = XOR(temp_result, wrap);
-                        if (newHidden | newHidden2) {
+                        let (temp_result, new_hidden) = xor(current_row_data, nowrap);
+                        let (result, new_hidden2) = xor(temp_result, wrap);
+                        if new_hidden | new_hidden2 {
                             self.general_registers[0xF] = 1;
                         } else {
                             self.general_registers[0xF] = 0;
@@ -443,9 +441,9 @@ impl Chip8 {
                     } else {
                         println!("{:#b} previous row", current_row_data);
                         let positioned_byte = (sprite_byte as u64 )<< (to_end - 8);
-                        let (result, hasHidden) = XOR(current_row_data, positioned_byte);
+                        let (result, has_hidden) = xor(current_row_data, positioned_byte);
                         println!("{:#b} result of XOR", result);
-                        self.general_registers[0xF] = hasHidden as u8;
+                        self.general_registers[0xF] = has_hidden as u8;
                         self.display[y_offset as usize] = result;
                     }
                 }
@@ -512,7 +510,7 @@ impl Chip8 {
     }
 
     // This is called when the screen needs updating
-    fn updateDisplay(&mut self, args: &RenderArgs) {
+    fn update_display(&mut self, args: &RenderArgs) {
         self.gl.draw(args.viewport(), |c, gl| {
             clear([0.0; 4], gl);
             
@@ -535,7 +533,7 @@ impl Chip8 {
                     if converted == 0b1 {
                         colour = white;
                         rectangle(colour, rect, c.transform, gl);
-                    } else if (SHOW_GRID) {
+                    } else if SHOW_GRID {
                         rectangle(colour, rect, c.transform, gl);
                         let border_tickness = 0.5;
                         Rectangle::new_border(white, border_tickness).draw(rect, &c.draw_state, c.transform, gl);
