@@ -10,6 +10,8 @@ extern crate twelve_bit;
 use twelve_bit::u12::*;
 extern crate rand;
 use rand::Rng;
+use std::collections::HashMap;
+
 const MEMORY_OFFSET: u16 = 512;
 const SPRITE_START: usize = 0;
 const PROGRAM_START: usize = 512;
@@ -132,6 +134,29 @@ fn xor(base: u64, add: u64) -> (u64, bool) {
     return (xored, xored != ored);
 }
 
+fn keyToEnum(charIn: u8) -> Key {
+    match charIn {
+        0x0 => return Key::D0,
+        0x1 => return Key::D1,
+        0x2 => return Key::D2,
+        0x3 => return Key::D3,
+        0x4 => return Key::D4,
+        0x5 => return Key::D5,
+        0x6 => return Key::D6,
+        0x7 => return Key::D7,
+        0x8 => return Key::D8,
+        0x9 => return Key::D9,
+        0xA => return Key::A,
+        0xB => return Key::B,
+        0xC => return Key::C,
+        0xD => return Key::D,
+        0xE => return Key::E,
+        0xF => return Key::F,
+        // basically null
+        _ => return Key::NumPad0,
+    };
+}
+
 struct Chip8 {
     // to change
     memory: [u8; MEMORY_SIZE],
@@ -148,7 +173,7 @@ struct Chip8 {
     window: PistonWindow,
     gl: GlGraphics,
     events: Events,
-
+    keysMap: HashMap<Key, bool>,
 }
 
 impl Chip8 {
@@ -174,6 +199,8 @@ impl Chip8 {
         event_settings.set_ups(700);
         let events = Events::new(event_settings);
 
+        let mut keysMap: HashMap<Key, bool> = HashMap::new();
+
         Chip8 {
             memory: memory_prepared,
             general_registers: [0; 16],
@@ -188,6 +215,7 @@ impl Chip8 {
             window,
             gl,
             events,
+            keysMap,
         }
     }
 
@@ -204,6 +232,26 @@ impl Chip8 {
     fn run(&mut self) {
         // Graphics loop
         while let Some(e) = self.events.next(&mut self.window) {
+
+            // Key press handling
+            if let Some(Button::Keyboard(key)) = e.press_args() {
+
+                self.keysMap.insert(key, true);
+
+                println!("Pressed keyboard key '{:?}'", key);
+            };
+            if let Some(button) = e.release_args() {
+                match button {
+                    Button::Keyboard(key) => {
+                        self.keysMap.remove(&key);
+                        println!("Released keyboard key '{:?}'", key)
+                    },
+                    Button::Mouse(button) => println!("Released mouse button '{:?}'", button),
+                    Button::Controller(button) => println!("Released controller button '{:?}'", button),
+                    Button::Hat(hat) => println!("Released controller hat `{:?}`", hat),
+                }
+            };
+
             // Execute a cycle on each update
             if let Some(args) = e.render_args() {
                 self.update_display(&args);
@@ -453,12 +501,21 @@ impl Chip8 {
                 let (x, k) = xkk(&instruction);
                 match k {
                     0xA1 => {
-                        // Is it value in Reg X or value X?? 
-                        println!("Skip instruction if key not pressed with value of register {:X}", x);
+                        // println!("Skip instruction if key not pressed with value of register {:X}", x);
+                        let keyIn = self.general_registers[x as usize];
+                        // convert to key enum
+                        if !self.isKeyPressed(keyToEnum(keyIn)) {
+                            self.skipNext()
+                        }
+                        
                     }
                     0x9E => {
-                        // Is it value in Reg X or value X?? 
-                        println!("Skip instruction if key pressed with value of register {:X}", x);
+                        // println!("Skip instruction if key pressed with value of register {:X}", x);
+                        let keyIn = self.general_registers[x as usize];
+                        // convert to key enum
+                        if self.isKeyPressed(keyToEnum(keyIn)) {
+                            self.skipNext()
+                        }
                     }
                     _ => {
                         handle_invalid_instruction(&instruction);
@@ -481,7 +538,8 @@ impl Chip8 {
                         println!("Set sound timer to value of Reg {:X}", x)
                     }
                     0x1E => {
-                        println!("Set I to I + Reg {:X}", x)
+                        // println!("Set I to I + Reg {:X}", x)
+                        self.memory_register = self.memory_register + self.general_registers[x as usize] as u16;
                     }
                     0x29 => {
                         // Is it value in Reg X or value X?? 
@@ -491,6 +549,7 @@ impl Chip8 {
                     0x33 => {
                         // The interpreter takes the decimal value of Vx, and places the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.
                         println!("Store BCD representation of Reg {:X} at I, I+1, I+2", x)
+                        
                     }
                     0x55 => {
                         println!("Store registers 0 through Reg {:X} in memory starting at location I. ", x)
@@ -542,8 +601,21 @@ impl Chip8 {
             }
         });
     }
-}
 
+    fn isKeyPressed(&mut self, key: Key) -> bool {
+        match self.keysMap.get(&key) {
+            Some(&value) => {
+                return value;
+            }
+            None => return false
+        }
+    }
+
+    fn skipNext(&mut self) {
+        self.program_counter += 2;
+    }
+
+}
 
 fn main() {
 
