@@ -157,6 +157,28 @@ fn keyToEnum(charIn: u8) -> Key {
     };
 }
 
+fn keyToHex(keyIn: Key) -> u8 {
+    match keyIn {
+        Key::D0 => return 0x0,
+        Key::D1 => return 0x1,
+        Key::D2 => return 0x2,
+        Key::D3 => return 0x3,
+        Key::D4 => return 0x4,
+        Key::D5 => return 0x5,
+        Key::D6 => return 0x6,
+        Key::D7 => return 0x7,
+        Key::D8 => return 0x8,
+        Key::D9 => return 0x9,
+        Key::A => return 0xA,
+        Key::B => return 0xB,
+        Key::C => return 0xC,
+        Key::D => return 0xD,
+        Key::E => return 0xE,
+        Key::F => return 0xF,
+        _ => return 0x0,
+    };
+}
+
 struct Chip8 {
     // to change
     memory: [u8; MEMORY_SIZE],
@@ -530,6 +552,19 @@ impl Chip8 {
                     }
                     0x0A => {
                         println!("Wait for key press and store in Reg {:X}", x)
+                        let mut hasKeyPressed = false;
+                        let mut keyPressed: Key;
+                        for (key, value) in self.keysMap {
+                            if value == true {
+                                hasKeyPressed = true;
+                                keyPressed = key;
+                            }
+                        }
+                        if hasKeyPressed {
+                            self.general_registers[x as usize] = keyToHex(keyPressed);
+                        } else {
+                            self.program_counter -= 2;
+                        }
                     }
                     0x15 => {
                         println!("Set Delay timer to value of Reg {:X}", x)
