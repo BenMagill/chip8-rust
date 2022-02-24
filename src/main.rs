@@ -548,20 +548,20 @@ impl Chip8 {
                 let (x, k) = xkk(&instruction);
                 match k {
                     0x07 => {
-                        println!("Copy value of Delay Timer to Reg {:X}", x)
+                        println!("Copy value of Delay Timer to Reg {:X}", x);
                     }
                     0x0A => {
-                        println!("Wait for key press and store in Reg {:X}", x)
-                        let mut hasKeyPressed = false;
-                        let mut keyPressed: Key;
-                        for (key, value) in self.keysMap {
-                            if value == true {
-                                hasKeyPressed = true;
-                                keyPressed = key;
+                        println!("Wait for key press and store in Reg {:X}", x);
+                        let mut has_key_pressed = false;
+                        let mut key_pressed: Key = Key::Z;
+                        for (key, value) in &self.keysMap {
+                            if *value == true {
+                                has_key_pressed = true;
+                                key_pressed = *key;
                             }
                         }
-                        if hasKeyPressed {
-                            self.general_registers[x as usize] = keyToHex(keyPressed);
+                        if has_key_pressed {
+                            self.general_registers[x as usize] = keyToHex(key_pressed);
                         } else {
                             self.program_counter -= 2;
                         }
@@ -578,6 +578,7 @@ impl Chip8 {
                     }
                     0x29 => {
                         // Is it value in Reg X or value X?? 
+                        println!("Getting sprite {:?}", x);
                         // println!("Set I to location of Sprite for digit in Reg {:X}", x);
                         self.memory_register = (SPRITE_START + ( 5 * (x-1)) as usize) as u16;
                     }
@@ -587,10 +588,18 @@ impl Chip8 {
                         
                     }
                     0x55 => {
-                        println!("Store registers 0 through Reg {:X} in memory starting at location I. ", x)
+                        println!("Store registers 0 through Reg {:X} in memory starting at location I. ", x);
+                        for i in 0..x+1 {
+                            let reg_value = self.general_registers[i as usize];
+                            self.memory[self.memory_register as usize] = reg_value;
+                        }
                     }
                     0x65 => {
-                        println!("Load registers 0 through Reg {:X} from memory starting at location I. ", x)
+                        println!("Load registers 0 through Reg {:X} from memory starting at location I. ", x);
+                        for i in 0..x+1 {
+                            let memory_value = self.memory[self.memory_register as usize];
+                            self.general_registers[i as usize] = memory_value;
+                        }
                     }
                     _ => {
                         handle_invalid_instruction(&instruction);
