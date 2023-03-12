@@ -206,12 +206,13 @@ impl Chip8 {
         for i in 0..SPRITES.len() {
             memory_prepared[i+SPRITE_START] = SPRITES[i];
         }
+        println!("window make");
 
         // Graphics stuff
         let opengl = OpenGL::V3_2;
         let window: PistonWindow = WindowSettings::new("shapes", [1300, 660])
-            .exit_on_esc(true)
             .graphics_api(opengl)
+            .exit_on_esc(true)
             .build()
             .unwrap();
 
@@ -222,7 +223,7 @@ impl Chip8 {
         let events = Events::new(event_settings);
 
         let mut keysMap: HashMap<Key, bool> = HashMap::new();
-
+        println!("window working");
         Chip8 {
             memory: memory_prepared,
             general_registers: [0; 16],
@@ -662,7 +663,6 @@ impl Chip8 {
 }
 
 fn main() {
-
     let mut prog = Chip8::new();
     let args: Vec<String> = env::args().collect();
     let program_location = &args[1];
